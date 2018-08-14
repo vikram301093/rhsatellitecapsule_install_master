@@ -70,20 +70,13 @@
 ## NOTE: this only works if your version of ansible includes https://github.com/ansible/ansible-modules-core/pull/1204
 ## which was merged 2015-08-24. If your version of Ansible is older, you'll need to identify
 ## your subscription pool ids and pass those to the role instead.
-- name: Enable RHEL subscription via username/password
+- name: Register as user credentials into given environment (against Red Hat Satellite 6.x), and auto-subscribe.
   redhat_subscription:
     state: present
-    username: "{{ redhat_user }}"
-    password: "{{ redhat_pass }}"
-    pool: ".*Red Hat (Enterprise Linux|Satellite).*"
-  when: redhat_user is defined and redhat_pass is defined
-
-- name: Enable RHEL subscription via activation key
-  redhat_subscription:
-    state: present
-    activationkey: "{{ redhat_activationkey }}"
-    pool: ".*Red Hat (Enterprise Linux|Satellite).*"
-  when: redhat_activationkey is defined
+    username: admin
+    password: redhat123
+    environment: Library
+    auto_attach: true
 
 - name: Add subs by pool id if your version of Ansible has a buggy redhat_subscription module
   command: "subscription-manager subscribe --pool={{ item }}"
