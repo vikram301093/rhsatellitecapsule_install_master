@@ -1,7 +1,7 @@
 ---
 
 - name: Download katello-ca-consumer-latest from Satellite Server
-  command: rpm -Uvh http://"{{ satellite-server }}"/pub/katello-ca-consumer-latest.noarch.rpm
+  command: rpm -Uvh http://"{{ satellite_server }}"/pub/katello-ca-consumer-latest.noarch.rpm
  
 - name: Set hostname
   hostname:
