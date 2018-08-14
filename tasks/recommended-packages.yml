@@ -1,0 +1,8 @@
+---
+- name: Install recommended packages
+  yum:
+    name: "{{ item }}"
+    state: installed
+  with_items:
+    - sos
+...

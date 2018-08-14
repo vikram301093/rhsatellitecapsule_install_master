@@ -1,0 +1,4 @@
+---
+
+satellite-server: satellite-server.amostest.com
+# vars file for rhsatellite_install_master

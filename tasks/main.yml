@@ -1,0 +1,129 @@
+---
+
+- name: Download katello-ca-consumer-latest from Satellite Server
+  command: rpm -Uvh http://"{{ satellite-server }}"/pub/katello-ca-consumer-latest.noarch.rpm
+ 
+- name: Set hostname
+  hostname:
+    name: "{{ satins_hostname }}"
+  register: set_hostname
+  tags: set_hostname
+  when: satins_hostname is defined
+
+- name: Rebuild the initramfs image so hostname is reflected correctly
+  command: dracut -f
+  when:
+    - ansible_distribution == 'CentOS' or ansible_distribution == 'RedHat'
+    - set_hostname|changed
+  tags: set_hostname
+
+- name: Reboot to a fresh state
+  shell: sleep 2 && shutdown -r now
+  async: 1
+  poll: 0
+  ignore_errors: true
+  when: set_hostname | changed
+  tags: set_hostname
+
+- name: Waiting for host to be reachable
+  local_action: wait_for host={{ inventory_hostname }} delay=5 port=22 state=started
+  become: false
+  when: set_hostname | changed
+  tags: set_hostname
+
+- name: Add host to /etc/hosts
+  lineinfile:
+    dest: /etc/hosts
+    regexp: '.*{{ ansible_nodename }}$'
+    line: '{{ ansible_default_ipv4.address }} {{ ansible_nodename }} {{ ansible_hostname }}'
+    state: present
+
+- name: Fail if OS is not RHEL
+  assert: { that: "ansible_distribution == 'RedHat'" }
+
+- name: Fail if OS is not RHEL 7 or higher
+  assert: { that: "ansible_distribution_version >= 7" }
+
+
+- name: Ensure EPEL is not installed
+  yum:
+    name: epel-release
+    state: absent
+
+## http://stopdisablingselinux.com/
+- name: SELinux is required for Satellite 6
+  shell: "test $(getenforce) == 'Enforcing'"
+  changed_when: False
+
+- name: Confirm DNS resolution for localhost
+  command: "ping -c1 localhost"
+  changed_when: False
+
+- name: Confirm DNS resoultion for short domain name of this host
+  shell: "ping -c1 $(hostname -s)"
+  changed_when: False
+
+- name: Confirm DNS resolution for fully-qualified domain name of this host
+  shell: "ping -c1 $(hostname -f)"
+  changed_when: False
+
+## NOTE: this only works if your version of ansible includes https://github.com/ansible/ansible-modules-core/pull/1204
+## which was merged 2015-08-24. If your version of Ansible is older, you'll need to identify
+## your subscription pool ids and pass those to the role instead.
+- name: Enable RHEL subscription via username/password
+  redhat_subscription:
+    state: present
+    username: "{{ redhat_user }}"
+    password: "{{ redhat_pass }}"
+    pool: ".*Red Hat (Enterprise Linux|Satellite).*"
+  when: redhat_user is defined and redhat_pass is defined
+
+- name: Enable RHEL subscription via activation key
+  redhat_subscription:
+    state: present
+    activationkey: "{{ redhat_activationkey }}"
+    pool: ".*Red Hat (Enterprise Linux|Satellite).*"
+  when: redhat_activationkey is defined
+
+- name: Add subs by pool id if your version of Ansible has a buggy redhat_subscription module
+  command: "subscription-manager subscribe --pool={{ item }}"
+  with_items: "{{ redhat_pool_ids | default([]) }}"
+
+- name: Check enabled repositories
+  command: "subscription-manager repos --list"
+  become: yes
+  changed_when: False
+  register: repositories_state
+
+- name: Reset enabled yum/rhn distros
+  command: subscription-manager repos --disable "*"
+  when: 'repositories_state.stdout.find("Enabled:   0") == 0'
+
+## TODO: FIXME this task shouldn't change the end-state, but is not idempotent
+## Note: Satellite channel is rhel-<rhel version>-server-satellite-<satellite version>-rpms
+- name: Only enable required yum/rhn distros
+  command: "subscription-manager repos \
+    --enable rhel-{{ ansible_distribution_major_version }}-server-rpms \
+    --enable rhel-server-rhscl-{{ ansible_distribution_major_version }}-rpms \
+    --enable rhel-{{ ansible_distribution_major_version }}-server-satellite-capsule-6.2-rpms"
+
+- block:
+    ## Installs and activates time sync. This is required for Foreman to function
+    - name: Install and activate time sync
+      include_tasks: timesync.yml
+
+    ## Installs and configures firewall- comment out to leave firewall out
+    - name: Install and configure firewall
+      include_tasks: firewall.yml
+  when: ansible_distribution_major_version == "7"
+
+## comment this line out to skip recommended but not required packages
+- name: Install required packages
+  include_tasks: recommended-packages.yml
+  tags: recommended
+
+- name: Install Satellite
+  yum:
+    name: satellite-capsule
+    state: installed
+...
